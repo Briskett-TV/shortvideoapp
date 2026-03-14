@@ -1,5 +1,7 @@
 "use client";
 
+//redeploy att 1
+
 import {
   CSSProperties,
   ChangeEvent,
@@ -39,21 +41,9 @@ type Visibility = "public" | "private";
 type PostType = "video" | "slideshow";
 type ProfileSection = "posts" | "saved" | "liked" | "settings";
 
-type ReplyItem = {
+type SlideshowSlide = {
   id: string;
-  authorId: string;
-  authorUsername: string;
-  text: string;
-  createdAt: number;
-};
-
-type CommentItem = {
-  id: string;
-  authorId: string;
-  authorUsername: string;
-  text: string;
-  createdAt: number;
-  replies: ReplyItem[];
+  imageUrl: string;
 };
 
 type Post = {
@@ -77,10 +67,30 @@ type Post = {
   audioName: string;
   recipeText: string;
   workoutSummary: string;
-  slideshowSlides: string[];
+
+  slideshowSlides: SlideshowSlide[];   // <-- updated
+
   commentsData: CommentItem[];
   isFoodOrGymRelated: boolean;
 };
+
+type ReplyItem = {
+  id: string;
+  authorId: string;
+  authorUsername: string;
+  text: string;
+  createdAt: number;
+};
+
+type CommentItem = {
+  id: string;
+  authorId: string;
+  authorUsername: string;
+  text: string;
+  createdAt: number;
+  replies: ReplyItem[];
+};
+
 
 type UserProfile = {
   username: string;
@@ -118,6 +128,33 @@ function safeStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function safeSlideshowSlides(value: unknown): SlideshowSlide[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item, index) => {
+      if (typeof item === "string") {
+        return {
+          id: `slide-${index}`,
+          imageUrl: item,
+        };
+      }
+
+      if (typeof item === "object" && item !== null) {
+        const slide = item as Partial<SlideshowSlide>;
+        return {
+          id:
+            typeof slide.id === "string" ? slide.id : `slide-${index}`,
+          imageUrl:
+            typeof slide.imageUrl === "string" ? slide.imageUrl : "",
+        };
+      }
+
+      return null;
+    })
+    .filter((item): item is SlideshowSlide => !!item && !!item.imageUrl);
 }
 
 function safeReplies(value: unknown): ReplyItem[] {
@@ -211,7 +248,7 @@ function mapPost(docItem: { id: string; data: () => any }): Post {
     audioName: safeString(data.audioName),
     recipeText: safeString(data.recipeText),
     workoutSummary: safeString(data.workoutSummary),
-    slideshowSlides: safeStringArray(data.slideshowSlides),
+    slideshowSlides: safeSlideshowSlides(data.slideshowSlides),
     commentsData,
     isFoodOrGymRelated:
       typeof data.isFoodOrGymRelated === "boolean"
@@ -274,7 +311,8 @@ export default function Home() {
   const [uploadAudioName, setUploadAudioName] = useState("");
   const [uploadRecipeText, setUploadRecipeText] = useState("");
   const [uploadWorkoutSummary, setUploadWorkoutSummary] = useState("");
-  const [uploadSlideshowText, setUploadSlideshowText] = useState("");
+  const [selectedSlideshowFiles, setSelectedSlideshowFiles] = useState<File[]>([]);
+  const [slideshowPreviewUrls, setSlideshowPreviewUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState("");
@@ -685,19 +723,23 @@ export default function Home() {
   }, [uploadCaption, uploadCategory, uploadRecipeText, uploadWorkoutSummary]);
 
   const resetCreateForm = () => {
-    setSelectedFile(null);
-    setPreviewUrl("");
-    setUploadCaption("");
-    setUploadCategory("food");
-    setUploadVisibility("public");
-    setUploadPostType("video");
-    setUploadAudioName("");
-    setUploadRecipeText("");
-    setUploadWorkoutSummary("");
-    setUploadSlideshowText("");
-    setUploadProgress(0);
-    setUploadError("");
-  };
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  slideshowPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+
+  setSelectedFile(null);
+  setPreviewUrl("");
+  setSelectedSlideshowFiles([]);
+  setSlideshowPreviewUrls([]);
+  setUploadCaption("");
+  setUploadCategory("food");
+  setUploadVisibility("public");
+  setUploadPostType("video");
+  setUploadAudioName("");
+  setUploadRecipeText("");
+  setUploadWorkoutSummary("");
+  setUploadProgress(0);
+  setUploadError("");
+};
 
   const handleScroll = () => {
     const container = containerRef.current;
@@ -740,6 +782,41 @@ export default function Home() {
     setPreviewUrl(URL.createObjectURL(file));
   };
 
+const handleSlideshowFilesChange = (
+  event: ChangeEvent<HTMLInputElement>
+) => {
+  const files = Array.from(event.target.files ?? []);
+
+  setUploadError("");
+  setGlobalMessage("");
+
+  slideshowPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+
+  if (!files.length) {
+    setSelectedSlideshowFiles([]);
+    setSlideshowPreviewUrls([]);
+    return;
+  }
+
+  const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+
+  if (imageFiles.length !== files.length) {
+    setUploadError("Please choose image files only for a slideshow.");
+    setSelectedSlideshowFiles([]);
+    setSlideshowPreviewUrls([]);
+    return;
+  }
+
+  setSelectedSlideshowFiles(imageFiles);
+  setSlideshowPreviewUrls(imageFiles.map((file) => URL.createObjectURL(file)));
+};
+
+useEffect(() => {
+  return () => {
+    slideshowPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+  };
+}, [slideshowPreviewUrls]);
+
   const handleUpload = async () => {
     if (!user?.uid || !profile) {
       setUploadError("User profile is not ready yet.");
@@ -771,10 +848,10 @@ export default function Home() {
       return;
     }
 
-    if (uploadPostType === "slideshow" && !uploadSlideshowText.trim()) {
-      setUploadError("Please add slideshow slide text.");
-      return;
-    }
+   if (uploadPostType === "slideshow" && selectedSlideshowFiles.length === 0) {
+  setUploadError("Please choose slideshow images.");
+  return;
+}
 
     setUploading(true);
     setUploadError("");
@@ -783,6 +860,8 @@ export default function Home() {
     try {
       let videoUrl = "";
       let storagePath = "";
+      let slideshowSlides: SlideshowSlide[] = [];
+      let slideshowStoragePaths: string[] = [];
 
       if (uploadPostType === "video" && selectedFile) {
         const safeFileName = `${Date.now()}-${selectedFile.name.replace(/\s+/g, "-")}`;
@@ -806,39 +885,61 @@ export default function Home() {
         storagePath = uploadTask.snapshot.ref.fullPath;
       }
 
-      const slideshowSlides =
-        uploadPostType === "slideshow"
-          ? uploadSlideshowText
-              .split("\n")
-              .map((slide) => slide.trim())
-              .filter(Boolean)
-          : [];
+      if (uploadPostType === "slideshow" && selectedSlideshowFiles.length) {
+  const uploadedSlides = await Promise.all(
+    selectedSlideshowFiles.map(async (file, index) => {
+      const safeFileName = `${Date.now()}-${index}-${file.name.replace(/\s+/g, "-")}`;
+      const slideRef = ref(storage, `slideshows/${user.uid}/${safeFileName}`);
+
+      await new Promise<void>((resolve, reject) => {
+        const task = uploadBytesResumable(slideRef, file);
+        task.on(
+          "state_changed",
+          undefined,
+          (error) => reject(error),
+          () => resolve()
+        );
+      });
+
+      const imageUrl = await getDownloadURL(slideRef);
+      slideshowStoragePaths.push(slideRef.fullPath);
+
+      return {
+        id: `slide-${Date.now()}-${index}`,
+        imageUrl,
+      };
+    })
+  );
+
+  slideshowSlides = uploadedSlides;
+}
 
       await addDoc(collection(db, "videos"), {
-        videoUrl,
-        username: profile.username.trim(),
-        caption: uploadCaption.trim(),
-        category: uploadCategory,
-        visibility: uploadVisibility,
-        ownerId: user.uid,
-        postType: uploadPostType,
-        audioName: uploadAudioName.trim(),
-        recipeText: uploadCategory === "food" ? uploadRecipeText.trim() : "",
-        workoutSummary:
-          uploadCategory === "gym" ? uploadWorkoutSummary.trim() : "",
-        slideshowSlides,
-        likedBy: [],
-        dislikedBy: [],
-        likesCount: 0,
-        dislikesCount: 0,
-        commentsCount: 0,
-        sharesCount: 0,
-        viewsCount: 0,
-        commentsData: [],
-        storagePath,
-        isFoodOrGymRelated: contentWarnings.length === 0,
-        createdAt: serverTimestamp(),
-      });
+  videoUrl,
+  username: profile.username.trim(),
+  caption: uploadCaption.trim(),
+  category: uploadCategory,
+  visibility: uploadVisibility,
+  ownerId: user.uid,
+  postType: uploadPostType,
+  audioName: uploadAudioName.trim(),
+  recipeText: uploadCategory === "food" ? uploadRecipeText.trim() : "",
+  workoutSummary:
+    uploadCategory === "gym" ? uploadWorkoutSummary.trim() : "",
+  slideshowSlides,
+  slideshowStoragePaths,
+  likedBy: [],
+  dislikedBy: [],
+  likesCount: 0,
+  dislikesCount: 0,
+  commentsCount: 0,
+  sharesCount: 0,
+  viewsCount: 0,
+  commentsData: [],
+  storagePath,
+  isFoodOrGymRelated: contentWarnings.length === 0,
+  createdAt: serverTimestamp(),
+});
 
       setGlobalMessage("Post uploaded successfully.");
       resetCreateForm();
@@ -994,28 +1095,46 @@ export default function Home() {
   };
 
   const handleDeletePost = async (post: Post) => {
-    if (!user?.uid || post.ownerId !== user.uid || busyPostId) return;
+  if (!user?.uid || post.ownerId !== user.uid || busyPostId) return;
 
-    setBusyPostId(post.id);
+console.log("current uid:", user?.uid);
+console.log("post ownerId:", post.ownerId);
+console.log("storagePath:", post.storagePath);
 
-    try {
-      if (post.storagePath) {
+  setBusyPostId(post.id);
+  setFeedError("");
+  setGlobalMessage("");
+
+  try {
+    if (post.storagePath) {
+      try {
         await deleteObject(ref(storage, post.storagePath));
-      }
+      } catch (storageError: any) {
+        console.error("STORAGE DELETE ERROR:", storageError);
 
-      await deleteDoc(doc(db, "videos", post.id));
-      setGlobalMessage("Post deleted.");
-    } catch (error: any) {
-      console.error("DELETE ERROR:", error);
-      setFeedError(
-        typeof error?.message === "string"
-          ? error.message
-          : "Could not delete the post."
-      );
-    } finally {
-      setBusyPostId(null);
+        const code = storageError?.code || "";
+
+        // If the file is already gone, that's okay.
+        if (code !== "storage/object-not-found") {
+          // Keep going anyway so the post disappears from the app.
+          setFeedError("Video file could not be removed from storage, but the post will still be deleted.");
+        }
+      }
     }
-  };
+
+    await deleteDoc(doc(db, "videos", post.id));
+    setGlobalMessage("Post deleted.");
+  } catch (error: any) {
+    console.error("DELETE ERROR:", error);
+    setFeedError(
+      typeof error?.message === "string"
+        ? error.message
+        : "Could not delete the post."
+    );
+  } finally {
+    setBusyPostId(null);
+  }
+};
 
   const openEditPost = (post: Post) => {
     setEditingPostId(post.id);
@@ -1051,6 +1170,22 @@ export default function Home() {
       setFeedError("Could not update post.");
     }
   };
+
+const slideshowPreviewGridStyle: CSSProperties = {
+  marginTop: 16,
+  display: "grid",
+  gridTemplateColumns: "repeat(3, 1fr)",
+  gap: 10,
+};
+
+const slideshowPreviewImageStyle: CSSProperties = {
+  width: "100%",
+  aspectRatio: "3 / 4",
+  objectFit: "cover",
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.08)",
+  background: "#111",
+};
 
   const handleAddComment = async (event: FormEvent) => {
     event.preventDefault();
@@ -1554,14 +1689,27 @@ export default function Home() {
             </>
           ) : (
             <>
-              <label style={labelStyle}>Slideshow Slides</label>
-              <textarea
-                value={uploadSlideshowText}
-                onChange={(e) => setUploadSlideshowText(e.target.value)}
-                placeholder={"One slide per line\nMeal prep overview\nMacros\nGrocery list"}
-                style={textareaStyle}
-              />
-            </>
+  <label style={labelStyle}>Slideshow Images</label>
+  <input
+    type="file"
+    accept="image/*"
+    multiple
+    onChange={handleSlideshowFilesChange}
+  />
+
+  {slideshowPreviewUrls.length ? (
+    <div style={slideshowPreviewGridStyle}>
+      {slideshowPreviewUrls.map((url, index) => (
+        <img
+          key={`${url}-${index}`}
+          src={url}
+          alt={`Slide ${index + 1}`}
+          style={slideshowPreviewImageStyle}
+        />
+      ))}
+    </div>
+  ) : null}
+</>
           )}
 
           <div style={editorPlaceholderStyle}>
