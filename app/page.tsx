@@ -1,7 +1,5 @@
 "use client";
 
-//redeploy att 1
-
 import {
   CSSProperties,
   ChangeEvent,
@@ -41,6 +39,23 @@ type Visibility = "public" | "private";
 type PostType = "video" | "slideshow";
 type ProfileSection = "posts" | "saved" | "liked" | "settings";
 
+type ReplyItem = {
+  id: string;
+  authorId: string;
+  authorUsername: string;
+  text: string;
+  createdAt: number;
+};
+
+type CommentItem = {
+  id: string;
+  authorId: string;
+  authorUsername: string;
+  text: string;
+  createdAt: number;
+  replies: ReplyItem[];
+};
+
 type SlideshowSlide = {
   id: string;
   imageUrl: string;
@@ -67,30 +82,11 @@ type Post = {
   audioName: string;
   recipeText: string;
   workoutSummary: string;
-
-  slideshowSlides: SlideshowSlide[];   // <-- updated
-
+  slideshowSlides: SlideshowSlide[];
+  slideshowStoragePaths: string[];
   commentsData: CommentItem[];
   isFoodOrGymRelated: boolean;
 };
-
-type ReplyItem = {
-  id: string;
-  authorId: string;
-  authorUsername: string;
-  text: string;
-  createdAt: number;
-};
-
-type CommentItem = {
-  id: string;
-  authorId: string;
-  authorUsername: string;
-  text: string;
-  createdAt: number;
-  replies: ReplyItem[];
-};
-
 
 type UserProfile = {
   username: string;
@@ -100,8 +96,8 @@ type UserProfile = {
   followerIds: string[];
 };
 
-const TOP_NAV_HEIGHT = 60;
-const BOTTOM_NAV_HEIGHT = 78;
+const TOP_NAV_HEIGHT = 58;
+const BOTTOM_NAV_HEIGHT = 74;
 
 function getMillis(value: unknown): number | undefined {
   if (value instanceof Timestamp) return value.toMillis();
@@ -116,7 +112,6 @@ function getMillis(value: unknown): number | undefined {
   }
 
   if (typeof value === "number") return value;
-
   return undefined;
 }
 
@@ -145,8 +140,7 @@ function safeSlideshowSlides(value: unknown): SlideshowSlide[] {
       if (typeof item === "object" && item !== null) {
         const slide = item as Partial<SlideshowSlide>;
         return {
-          id:
-            typeof slide.id === "string" ? slide.id : `slide-${index}`,
+          id: typeof slide.id === "string" ? slide.id : `slide-${index}`,
           imageUrl:
             typeof slide.imageUrl === "string" ? slide.imageUrl : "",
         };
@@ -160,10 +154,13 @@ function safeSlideshowSlides(value: unknown): SlideshowSlide[] {
 function safeReplies(value: unknown): ReplyItem[] {
   if (!Array.isArray(value)) return [];
   return value
-    .map((reply) => {
+    .map((reply, index) => {
       const item = reply as Partial<ReplyItem>;
       return {
-        id: typeof item.id === "string" ? item.id : `reply-${Date.now()}`,
+        id:
+          typeof item.id === "string"
+            ? item.id
+            : `reply-${index}-${Date.now()}`,
         authorId: typeof item.authorId === "string" ? item.authorId : "",
         authorUsername:
           typeof item.authorUsername === "string"
@@ -180,10 +177,13 @@ function safeReplies(value: unknown): ReplyItem[] {
 function safeComments(value: unknown): CommentItem[] {
   if (!Array.isArray(value)) return [];
   return value
-    .map((comment) => {
+    .map((comment, index) => {
       const item = comment as Partial<CommentItem> & { replies?: unknown };
       return {
-        id: typeof item.id === "string" ? item.id : `comment-${Date.now()}`,
+        id:
+          typeof item.id === "string"
+            ? item.id
+            : `comment-${index}-${Date.now()}`,
         authorId: typeof item.authorId === "string" ? item.authorId : "",
         authorUsername:
           typeof item.authorUsername === "string"
@@ -210,8 +210,8 @@ function mapPost(docItem: { id: string; data: () => any }): Post {
       typeof data.videoUrl === "string"
         ? data.videoUrl
         : typeof data.url === "string"
-        ? data.url
-        : "",
+          ? data.url
+          : "",
     username:
       typeof data.username === "string" && data.username.trim() !== ""
         ? data.username
@@ -239,8 +239,8 @@ function mapPost(docItem: { id: string; data: () => any }): Post {
       typeof data.ownerId === "string"
         ? data.ownerId
         : typeof data.userId === "string"
-        ? data.userId
-        : null,
+          ? data.userId
+          : null,
     postType: data.postType === "slideshow" ? "slideshow" : "video",
     storagePath: safeString(data.storagePath),
     likedBy,
@@ -249,6 +249,7 @@ function mapPost(docItem: { id: string; data: () => any }): Post {
     recipeText: safeString(data.recipeText),
     workoutSummary: safeString(data.workoutSummary),
     slideshowSlides: safeSlideshowSlides(data.slideshowSlides),
+    slideshowStoragePaths: safeStringArray(data.slideshowStoragePaths),
     commentsData,
     isFoodOrGymRelated:
       typeof data.isFoodOrGymRelated === "boolean"
@@ -303,6 +304,13 @@ export default function Home() {
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
+  const [selectedSlideshowFiles, setSelectedSlideshowFiles] = useState<File[]>(
+    []
+  );
+  const [slideshowPreviewUrls, setSlideshowPreviewUrls] = useState<string[]>(
+    []
+  );
+
   const [uploadCaption, setUploadCaption] = useState("");
   const [uploadCategory, setUploadCategory] = useState<PostCategory>("food");
   const [uploadVisibility, setUploadVisibility] =
@@ -311,8 +319,6 @@ export default function Home() {
   const [uploadAudioName, setUploadAudioName] = useState("");
   const [uploadRecipeText, setUploadRecipeText] = useState("");
   const [uploadWorkoutSummary, setUploadWorkoutSummary] = useState("");
-  const [selectedSlideshowFiles, setSelectedSlideshowFiles] = useState<File[]>([]);
-  const [slideshowPreviewUrls, setSlideshowPreviewUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState("");
@@ -336,23 +342,53 @@ export default function Home() {
   const [settingsBio, setSettingsBio] = useState("");
   const [settingsSaving, setSettingsSaving] = useState(false);
 
-  const [viewedProfileOwnerId, setViewedProfileOwnerId] = useState<string | null>(
-    null
-  );
+  const [viewedProfileOwnerId, setViewedProfileOwnerId] = useState<
+    string | null
+  >(null);
 
   const [busyPostId, setBusyPostId] = useState<string | null>(null);
   const [busyFollowUserId, setBusyFollowUserId] = useState<string | null>(null);
 
+  const [heartBurstPostId, setHeartBurstPostId] = useState<string | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const viewedPostsRef = useRef<Set<string>>(new Set());
+  const lastTapRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setShowSplash(false);
-    }, 1200);
+    }, 1000);
 
     return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const styleId = "prep-n-rep-ui-styles";
+
+    if (document.getElementById(styleId)) return;
+
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.innerHTML = `
+      @keyframes heartPop {
+        0% { transform: scale(0.6); opacity: 0; }
+        20% { transform: scale(1.15); opacity: 1; }
+        60% { transform: scale(1); opacity: 1; }
+        100% { transform: scale(1.25); opacity: 0; }
+      }
+
+      .feed-scroll::-webkit-scrollbar {
+        display: none;
+      }
+    `;
+    document.head.appendChild(style);
+
+    return () => {
+      const existing = document.getElementById(styleId);
+      if (existing) existing.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -469,6 +505,12 @@ export default function Home() {
     };
   }, [previewUrl]);
 
+  useEffect(() => {
+    return () => {
+      slideshowPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [slideshowPreviewUrls]);
+
   const savedPostIds = profile?.savedPostIds ?? [];
   const followingIds = profile?.followingIds ?? [];
 
@@ -522,10 +564,10 @@ export default function Home() {
         feedSection === "all"
           ? true
           : feedSection === "following"
-          ? !!post.ownerId && followingIds.includes(post.ownerId)
-          : feedSection === "mixed"
-          ? true
-          : post.category === feedSection;
+            ? !!post.ownerId && followingIds.includes(post.ownerId)
+            : feedSection === "mixed"
+              ? true
+              : post.category === feedSection;
 
       return visibilityOk && sectionOk;
     });
@@ -542,8 +584,7 @@ export default function Home() {
         post.likes * 3 +
         post.comments * 4 +
         post.shares * 3 +
-        post.views * 0.05 -
-        post.dislikes * 2;
+        post.views * 0.05;
 
       const savedBoost = savedPostIds.includes(post.id) ? 15 : 0;
       const likedBoost =
@@ -603,16 +644,21 @@ export default function Home() {
 
     visiblePosts.forEach((post, index) => {
       const video = videoRefs.current[post.id];
-      if (!video) return;
+      if (!video || post.postType === "slideshow") return;
+
+      const isCurrent = index === currentIndex;
+      const isNear = Math.abs(index - currentIndex) <= 1;
 
       video.muted = muted;
+      video.preload = isNear ? "auto" : "metadata";
 
-      if (post.postType === "slideshow") return;
-
-      if (index === currentIndex) {
+      if (isCurrent) {
         video.play().catch(() => {});
       } else {
         video.pause();
+        if (!isNear) {
+          video.currentTime = 0;
+        }
       }
     });
   }, [currentIndex, muted, tab, visiblePosts]);
@@ -661,7 +707,10 @@ export default function Home() {
     if (viewedProfileOwnerId === user?.uid) {
       return profile?.username || "@user";
     }
-    return viewedProfilePosts[0]?.username || "@user";
+    return (
+      viewedProfilePosts[0]?.username ||
+      `@user-${viewedProfileOwnerId.slice(0, 5)}`
+    );
   }, [viewedProfileOwnerId, viewedProfilePosts, user?.uid, profile?.username]);
 
   const viewedProfileBio = useMemo(() => {
@@ -723,23 +772,23 @@ export default function Home() {
   }, [uploadCaption, uploadCategory, uploadRecipeText, uploadWorkoutSummary]);
 
   const resetCreateForm = () => {
-  if (previewUrl) URL.revokeObjectURL(previewUrl);
-  slideshowPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    slideshowPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
 
-  setSelectedFile(null);
-  setPreviewUrl("");
-  setSelectedSlideshowFiles([]);
-  setSlideshowPreviewUrls([]);
-  setUploadCaption("");
-  setUploadCategory("food");
-  setUploadVisibility("public");
-  setUploadPostType("video");
-  setUploadAudioName("");
-  setUploadRecipeText("");
-  setUploadWorkoutSummary("");
-  setUploadProgress(0);
-  setUploadError("");
-};
+    setSelectedFile(null);
+    setPreviewUrl("");
+    setSelectedSlideshowFiles([]);
+    setSlideshowPreviewUrls([]);
+    setUploadCaption("");
+    setUploadCategory("food");
+    setUploadVisibility("public");
+    setUploadPostType("video");
+    setUploadAudioName("");
+    setUploadRecipeText("");
+    setUploadWorkoutSummary("");
+    setUploadProgress(0);
+    setUploadError("");
+  };
 
   const handleScroll = () => {
     const container = containerRef.current;
@@ -782,40 +831,34 @@ export default function Home() {
     setPreviewUrl(URL.createObjectURL(file));
   };
 
-const handleSlideshowFilesChange = (
-  event: ChangeEvent<HTMLInputElement>
-) => {
-  const files = Array.from(event.target.files ?? []);
+  const handleSlideshowFilesChange = (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = Array.from(event.target.files ?? []);
 
-  setUploadError("");
-  setGlobalMessage("");
+    setUploadError("");
+    setGlobalMessage("");
 
-  slideshowPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
-
-  if (!files.length) {
-    setSelectedSlideshowFiles([]);
-    setSlideshowPreviewUrls([]);
-    return;
-  }
-
-  const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-
-  if (imageFiles.length !== files.length) {
-    setUploadError("Please choose image files only for a slideshow.");
-    setSelectedSlideshowFiles([]);
-    setSlideshowPreviewUrls([]);
-    return;
-  }
-
-  setSelectedSlideshowFiles(imageFiles);
-  setSlideshowPreviewUrls(imageFiles.map((file) => URL.createObjectURL(file)));
-};
-
-useEffect(() => {
-  return () => {
     slideshowPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+
+    if (!files.length) {
+      setSelectedSlideshowFiles([]);
+      setSlideshowPreviewUrls([]);
+      return;
+    }
+
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+
+    if (imageFiles.length !== files.length) {
+      setUploadError("Please choose image files only for a slideshow.");
+      setSelectedSlideshowFiles([]);
+      setSlideshowPreviewUrls([]);
+      return;
+    }
+
+    setSelectedSlideshowFiles(imageFiles);
+    setSlideshowPreviewUrls(imageFiles.map((file) => URL.createObjectURL(file)));
   };
-}, [slideshowPreviewUrls]);
 
   const handleUpload = async () => {
     if (!user?.uid || !profile) {
@@ -839,7 +882,7 @@ useEffect(() => {
     }
 
     if (uploadCategory === "gym" && !uploadWorkoutSummary.trim()) {
-      setUploadError("Gym posts need a workout split / sets section.");
+      setUploadError("Gym posts need a workout section.");
       return;
     }
 
@@ -848,10 +891,10 @@ useEffect(() => {
       return;
     }
 
-   if (uploadPostType === "slideshow" && selectedSlideshowFiles.length === 0) {
-  setUploadError("Please choose slideshow images.");
-  return;
-}
+    if (uploadPostType === "slideshow" && selectedSlideshowFiles.length === 0) {
+      setUploadError("Please choose slideshow images.");
+      return;
+    }
 
     setUploading(true);
     setUploadError("");
@@ -886,60 +929,60 @@ useEffect(() => {
       }
 
       if (uploadPostType === "slideshow" && selectedSlideshowFiles.length) {
-  const uploadedSlides = await Promise.all(
-    selectedSlideshowFiles.map(async (file, index) => {
-      const safeFileName = `${Date.now()}-${index}-${file.name.replace(/\s+/g, "-")}`;
-      const slideRef = ref(storage, `slideshows/${user.uid}/${safeFileName}`);
+        const uploadedSlides = await Promise.all(
+          selectedSlideshowFiles.map(async (file, index) => {
+            const safeFileName = `${Date.now()}-${index}-${file.name.replace(/\s+/g, "-")}`;
+            const slideRef = ref(storage, `slideshows/${user.uid}/${safeFileName}`);
 
-      await new Promise<void>((resolve, reject) => {
-        const task = uploadBytesResumable(slideRef, file);
-        task.on(
-          "state_changed",
-          undefined,
-          (error) => reject(error),
-          () => resolve()
+            await new Promise<void>((resolve, reject) => {
+              const task = uploadBytesResumable(slideRef, file);
+              task.on(
+                "state_changed",
+                undefined,
+                (error) => reject(error),
+                () => resolve()
+              );
+            });
+
+            const imageUrl = await getDownloadURL(slideRef);
+            slideshowStoragePaths.push(slideRef.fullPath);
+
+            return {
+              id: `slide-${Date.now()}-${index}`,
+              imageUrl,
+            };
+          })
         );
-      });
 
-      const imageUrl = await getDownloadURL(slideRef);
-      slideshowStoragePaths.push(slideRef.fullPath);
-
-      return {
-        id: `slide-${Date.now()}-${index}`,
-        imageUrl,
-      };
-    })
-  );
-
-  slideshowSlides = uploadedSlides;
-}
+        slideshowSlides = uploadedSlides;
+      }
 
       await addDoc(collection(db, "videos"), {
-  videoUrl,
-  username: profile.username.trim(),
-  caption: uploadCaption.trim(),
-  category: uploadCategory,
-  visibility: uploadVisibility,
-  ownerId: user.uid,
-  postType: uploadPostType,
-  audioName: uploadAudioName.trim(),
-  recipeText: uploadCategory === "food" ? uploadRecipeText.trim() : "",
-  workoutSummary:
-    uploadCategory === "gym" ? uploadWorkoutSummary.trim() : "",
-  slideshowSlides,
-  slideshowStoragePaths,
-  likedBy: [],
-  dislikedBy: [],
-  likesCount: 0,
-  dislikesCount: 0,
-  commentsCount: 0,
-  sharesCount: 0,
-  viewsCount: 0,
-  commentsData: [],
-  storagePath,
-  isFoodOrGymRelated: contentWarnings.length === 0,
-  createdAt: serverTimestamp(),
-});
+        videoUrl,
+        username: profile.username.trim(),
+        caption: uploadCaption.trim(),
+        category: uploadCategory,
+        visibility: uploadVisibility,
+        ownerId: user.uid,
+        postType: uploadPostType,
+        audioName: uploadAudioName.trim(),
+        recipeText: uploadCategory === "food" ? uploadRecipeText.trim() : "",
+        workoutSummary:
+          uploadCategory === "gym" ? uploadWorkoutSummary.trim() : "",
+        slideshowSlides,
+        slideshowStoragePaths,
+        likedBy: [],
+        dislikedBy: [],
+        likesCount: 0,
+        dislikesCount: 0,
+        commentsCount: 0,
+        sharesCount: 0,
+        viewsCount: 0,
+        commentsData: [],
+        storagePath,
+        isFoodOrGymRelated: contentWarnings.length === 0,
+        createdAt: serverTimestamp(),
+      });
 
       setGlobalMessage("Post uploaded successfully.");
       resetCreateForm();
@@ -957,10 +1000,7 @@ useEffect(() => {
     }
   };
 
-  const handleToggleFollow = async (
-    targetUserId: string | null,
-    _targetUsername?: string
-  ) => {
+  const handleToggleFollow = async (targetUserId: string | null) => {
     if (!user?.uid || !targetUserId) return;
     if (user.uid === targetUserId) return;
     if (busyFollowUserId) return;
@@ -990,7 +1030,7 @@ useEffect(() => {
     }
   };
 
-  const handleReaction = async (post: Post, reaction: "like" | "dislike") => {
+  const handleLike = async (post: Post) => {
     if (!user?.uid || busyPostId) return;
 
     setBusyPostId(post.id);
@@ -1005,45 +1045,54 @@ useEffect(() => {
 
         const data = snap.data();
         const likedBy = safeStringArray(data.likedBy);
-        const dislikedBy = safeStringArray(data.dislikedBy);
-
         const hasLiked = likedBy.includes(user.uid);
-        const hasDisliked = dislikedBy.includes(user.uid);
-
-        let nextLikedBy = [...likedBy];
-        let nextDislikedBy = [...dislikedBy];
-
-        if (reaction === "like") {
-          if (hasLiked) {
-            nextLikedBy = nextLikedBy.filter((id) => id !== user.uid);
-          } else {
-            nextLikedBy.push(user.uid);
-            nextDislikedBy = nextDislikedBy.filter((id) => id !== user.uid);
-          }
-        }
-
-        if (reaction === "dislike") {
-          if (hasDisliked) {
-            nextDislikedBy = nextDislikedBy.filter((id) => id !== user.uid);
-          } else {
-            nextDislikedBy.push(user.uid);
-            nextLikedBy = nextLikedBy.filter((id) => id !== user.uid);
-          }
-        }
+        const nextLikedBy = hasLiked
+          ? likedBy.filter((id) => id !== user.uid)
+          : [...likedBy, user.uid];
 
         transaction.update(postRef, {
           likedBy: nextLikedBy,
-          dislikedBy: nextDislikedBy,
           likesCount: nextLikedBy.length,
-          dislikesCount: nextDislikedBy.length,
         });
       });
     } catch (error) {
-      console.error("REACTION ERROR:", error);
-      setFeedError("Could not update reaction.");
+      console.error("LIKE ERROR:", error);
+      setFeedError("Could not update like.");
     } finally {
       setBusyPostId(null);
     }
+  };
+
+  const handleVideoTap = (post: Post) => {
+    const now = Date.now();
+    const lastTap = lastTapRef.current[post.id] ?? 0;
+    const isDoubleTap = now - lastTap < 260;
+
+    lastTapRef.current[post.id] = now;
+
+    const video = videoRefs.current[post.id];
+
+    if (isDoubleTap) {
+      void handleLike(post);
+      setHeartBurstPostId(post.id);
+
+      window.setTimeout(() => {
+        setHeartBurstPostId((current) => (current === post.id ? null : current));
+      }, 700);
+
+      return;
+    }
+
+    setMuted((prev) => {
+      const nextMuted = !prev;
+      if (video) {
+        video.muted = nextMuted;
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+      }
+      return nextMuted;
+    });
   };
 
   const handleSaveRecipe = async (post: Post) => {
@@ -1095,46 +1144,51 @@ useEffect(() => {
   };
 
   const handleDeletePost = async (post: Post) => {
-  if (!user?.uid || post.ownerId !== user.uid || busyPostId) return;
+    if (!user?.uid || post.ownerId !== user.uid || busyPostId) return;
 
-console.log("current uid:", user?.uid);
-console.log("post ownerId:", post.ownerId);
-console.log("storagePath:", post.storagePath);
+    setBusyPostId(post.id);
+    setFeedError("");
+    setGlobalMessage("");
 
-  setBusyPostId(post.id);
-  setFeedError("");
-  setGlobalMessage("");
-
-  try {
-    if (post.storagePath) {
-      try {
-        await deleteObject(ref(storage, post.storagePath));
-      } catch (storageError: any) {
-        console.error("STORAGE DELETE ERROR:", storageError);
-
-        const code = storageError?.code || "";
-
-        // If the file is already gone, that's okay.
-        if (code !== "storage/object-not-found") {
-          // Keep going anyway so the post disappears from the app.
-          setFeedError("Video file could not be removed from storage, but the post will still be deleted.");
+    try {
+      if (post.postType === "video" && post.storagePath) {
+        try {
+          await deleteObject(ref(storage, post.storagePath));
+        } catch (storageError: any) {
+          console.error("VIDEO STORAGE DELETE ERROR:", storageError);
+          if (storageError?.code !== "storage/object-not-found") {
+            setFeedError(
+              "Video file could not be removed from storage, but the post will still be deleted."
+            );
+          }
         }
       }
-    }
 
-    await deleteDoc(doc(db, "videos", post.id));
-    setGlobalMessage("Post deleted.");
-  } catch (error: any) {
-    console.error("DELETE ERROR:", error);
-    setFeedError(
-      typeof error?.message === "string"
-        ? error.message
-        : "Could not delete the post."
-    );
-  } finally {
-    setBusyPostId(null);
-  }
-};
+      if (post.postType === "slideshow" && post.slideshowStoragePaths.length) {
+        await Promise.all(
+          post.slideshowStoragePaths.map(async (path) => {
+            try {
+              await deleteObject(ref(storage, path));
+            } catch (storageError: any) {
+              console.error("SLIDESHOW STORAGE DELETE ERROR:", storageError);
+            }
+          })
+        );
+      }
+
+      await deleteDoc(doc(db, "videos", post.id));
+      setGlobalMessage("Post deleted.");
+    } catch (error: any) {
+      console.error("DELETE ERROR:", error);
+      setFeedError(
+        typeof error?.message === "string"
+          ? error.message
+          : "Could not delete the post."
+      );
+    } finally {
+      setBusyPostId(null);
+    }
+  };
 
   const openEditPost = (post: Post) => {
     setEditingPostId(post.id);
@@ -1170,22 +1224,6 @@ console.log("storagePath:", post.storagePath);
       setFeedError("Could not update post.");
     }
   };
-
-const slideshowPreviewGridStyle: CSSProperties = {
-  marginTop: 16,
-  display: "grid",
-  gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 10,
-};
-
-const slideshowPreviewImageStyle: CSSProperties = {
-  width: "100%",
-  aspectRatio: "3 / 4",
-  objectFit: "cover",
-  borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.08)",
-  background: "#111",
-};
 
   const handleAddComment = async (event: FormEvent) => {
     event.preventDefault();
@@ -1333,8 +1371,8 @@ const slideshowPreviewImageStyle: CSSProperties = {
               {section === "all"
                 ? "Prep N Rep"
                 : section === "following"
-                ? "Following"
-                : section.charAt(0).toUpperCase() + section.slice(1)}
+                  ? "Following"
+                  : section.charAt(0).toUpperCase() + section.slice(1)}
             </button>
           )
         )}
@@ -1346,7 +1384,7 @@ const slideshowPreviewImageStyle: CSSProperties = {
     const isSavedRecipe = savedPostIds.includes(post.id);
 
     return (
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 10 }}>
         {post.category === "food" ? (
           <div style={detailCardStyle}>
             <div style={detailTitleStyle}>Recipe</div>
@@ -1358,21 +1396,20 @@ const slideshowPreviewImageStyle: CSSProperties = {
               onClick={() => handleSaveRecipe(post)}
               style={smallActionButtonStyle(isSavedRecipe)}
             >
-              {isSavedRecipe ? "Saved Recipe ✓" : "Save Recipe"}
+              {isSavedRecipe ? "Saved ✓" : "Save Recipe"}
             </button>
           </div>
         ) : (
           <div style={detailCardStyle}>
-            <div style={detailTitleStyle}>Workout Split / Sets</div>
+            <div style={detailTitleStyle}>Workout</div>
             <div style={detailBodyStyle}>
-              {post.workoutSummary ||
-                "Workout summary placeholder for this gym post."}
+              {post.workoutSummary || "Workout summary placeholder."}
             </div>
           </div>
         )}
 
         {post.audioName ? (
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.82 }}>
+          <div style={{ marginTop: 8, fontSize: 12, opacity: 0.86 }}>
             🎵 {post.audioName}
           </div>
         ) : null}
@@ -1407,11 +1444,11 @@ const slideshowPreviewImageStyle: CSSProperties = {
           ref={containerRef}
           onScroll={handleScroll}
           style={feedContainerStyle}
+          className="feed-scroll"
         >
           {visiblePosts.map((post) => {
             const isOwner = post.ownerId === user?.uid;
             const isLiked = !!user?.uid && post.likedBy.includes(user.uid);
-            const isDisliked = !!user?.uid && post.dislikedBy.includes(user.uid);
             const isBusy = busyPostId === post.id;
             const isFollowingCreator =
               !!post.ownerId && followingIds.includes(post.ownerId);
@@ -1419,15 +1456,20 @@ const slideshowPreviewImageStyle: CSSProperties = {
             return (
               <div key={post.id} style={feedItemStyle}>
                 {post.postType === "slideshow" ? (
-                  <div style={slideshowPlaceholderStyle}>
-                    <div style={{ fontSize: 20, fontWeight: 900 }}>
-                      Slideshow Post
-                    </div>
-                    <div style={{ marginTop: 10, opacity: 0.88 }}>
-                      {post.slideshowSlides.length
-                        ? post.slideshowSlides.join(" • ")
-                        : "No slides added."}
-                    </div>
+                  <div style={slideshowWrapStyle}>
+                    {post.slideshowSlides.length ? (
+                      post.slideshowSlides.map((slide, index) => (
+                        <div key={slide.id} style={slideshowSlideStyle}>
+                          <img
+                            src={slide.imageUrl}
+                            alt={`Slide ${index + 1}`}
+                            style={slideshowImageStyle}
+                          />
+                        </div>
+                      ))
+                    ) : (
+                      <div style={slideshowEmptyStyle}>No slideshow images.</div>
+                    )}
                   </div>
                 ) : (
                   <video
@@ -1441,27 +1483,23 @@ const slideshowPreviewImageStyle: CSSProperties = {
                     controls={false}
                     preload="metadata"
                     style={videoStyle}
-                    onClick={() => {
-                      const video = videoRefs.current[post.id];
-                      if (!video) return;
-                      if (video.paused) {
-                        video.play().catch(() => {});
-                      } else {
-                        video.pause();
-                      }
-                    }}
+                    onClick={() => handleVideoTap(post)}
                   />
                 )}
+
+                {heartBurstPostId === post.id ? (
+                  <div style={heartBurstStyle}>❤️</div>
+                ) : null}
 
                 <div style={overlayStyle} />
 
                 <div style={topInfoStyle}>
                   <div style={pillStyle}>{post.category.toUpperCase()}</div>
-                  <div style={pillStyle}>
-                    {post.visibility === "private" ? "PRIVATE" : "PUBLIC"}
-                  </div>
                   {!post.isFoodOrGymRelated ? (
                     <div style={warningPillStyle}>CHECK CONTENT</div>
+                  ) : null}
+                  {post.postType === "video" ? (
+                    <div style={pillStyle}>{muted ? "Tap for sound" : "Sound on"}</div>
                   ) : null}
                 </div>
 
@@ -1469,7 +1507,9 @@ const slideshowPreviewImageStyle: CSSProperties = {
                   <div style={usernameRowStyle}>
                     <button
                       type="button"
-                      onClick={() => post.ownerId && setViewedProfileOwnerId(post.ownerId)}
+                      onClick={() =>
+                        post.ownerId && setViewedProfileOwnerId(post.ownerId)
+                      }
                       style={usernameLinkStyle}
                     >
                       {post.username}
@@ -1478,15 +1518,15 @@ const slideshowPreviewImageStyle: CSSProperties = {
                     {!isOwner && post.ownerId ? (
                       <button
                         type="button"
-                        onClick={() => handleToggleFollow(post.ownerId, post.username)}
+                        onClick={() => handleToggleFollow(post.ownerId)}
                         disabled={busyFollowUserId === post.ownerId}
                         style={followButtonStyle(isFollowingCreator)}
                       >
                         {busyFollowUserId === post.ownerId
                           ? "..."
                           : isFollowingCreator
-                          ? "Following"
-                          : "Follow"}
+                            ? "Following"
+                            : "Follow"}
                       </button>
                     ) : null}
                   </div>
@@ -1506,21 +1546,11 @@ const slideshowPreviewImageStyle: CSSProperties = {
                   <button
                     type="button"
                     style={reactionButtonStyle(isLiked)}
-                    onClick={() => handleReaction(post, "like")}
+                    onClick={() => handleLike(post)}
                     disabled={isBusy}
                   >
                     ❤️
                     <div style={actionLabelStyle}>{post.likes}</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    style={reactionButtonStyle(isDisliked)}
-                    onClick={() => handleReaction(post, "dislike")}
-                    disabled={isBusy}
-                  >
-                    👎
-                    <div style={actionLabelStyle}>{post.dislikes}</div>
                   </button>
 
                   <button
@@ -1537,16 +1567,8 @@ const slideshowPreviewImageStyle: CSSProperties = {
                     style={actionButtonStyle}
                     onClick={() => handleShare(post)}
                   >
-                    ➜
+                    ↗
                     <div style={actionLabelStyle}>{post.shares}</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    style={actionButtonStyle}
-                    onClick={() => setMuted((prev) => !prev)}
-                  >
-                    {muted ? "🔇" : "🔊"}
                   </button>
 
                   {isOwner ? (
@@ -1584,7 +1606,7 @@ const slideshowPreviewImageStyle: CSSProperties = {
           <div>
             <h2 style={{ margin: 0 }}>Create</h2>
             <p style={pageSubtextStyle}>
-              Upload a food prep or gym post. Mixed is a feed mode, not an upload category.
+              Clean vertical posts for food and gym content.
             </p>
           </div>
         </div>
@@ -1680,7 +1702,6 @@ const slideshowPreviewImageStyle: CSSProperties = {
                   <video
                     src={previewUrl}
                     controls
-                    muted={false}
                     playsInline
                     style={previewStyle}
                   />
@@ -1689,33 +1710,33 @@ const slideshowPreviewImageStyle: CSSProperties = {
             </>
           ) : (
             <>
-  <label style={labelStyle}>Slideshow Images</label>
-  <input
-    type="file"
-    accept="image/*"
-    multiple
-    onChange={handleSlideshowFilesChange}
-  />
+              <label style={labelStyle}>Slideshow Images</label>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleSlideshowFilesChange}
+              />
 
-  {slideshowPreviewUrls.length ? (
-    <div style={slideshowPreviewGridStyle}>
-      {slideshowPreviewUrls.map((url, index) => (
-        <img
-          key={`${url}-${index}`}
-          src={url}
-          alt={`Slide ${index + 1}`}
-          style={slideshowPreviewImageStyle}
-        />
-      ))}
-    </div>
-  ) : null}
-</>
+              {slideshowPreviewUrls.length ? (
+                <div style={slideshowPreviewGridStyle}>
+                  {slideshowPreviewUrls.map((url, index) => (
+                    <img
+                      key={`${url}-${index}`}
+                      src={url}
+                      alt={`Slide ${index + 1}`}
+                      style={slideshowPreviewImageStyle}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </>
           )}
 
           <div style={editorPlaceholderStyle}>
-            <div style={{ fontWeight: 900 }}>In-app editor placeholder</div>
-            <div style={{ marginTop: 6, opacity: 0.8 }}>
-              Full TikTok-style editing tools can be added after the core app is stable.
+            <div style={{ fontWeight: 900 }}>Simple editor coming next</div>
+            <div style={{ marginTop: 6, opacity: 0.82 }}>
+              This version supports cleaner uploads, slideshow images, and a more mobile-first feed.
             </div>
           </div>
 
@@ -1727,9 +1748,13 @@ const slideshowPreviewImageStyle: CSSProperties = {
             </div>
           ) : null}
 
-          {uploading ? <div style={statusTextStyle}>Uploading... {uploadProgress}%</div> : null}
+          {uploading ? (
+            <div style={statusTextStyle}>Uploading... {uploadProgress}%</div>
+          ) : null}
           {uploadError ? <div style={errorTextStyle}>{uploadError}</div> : null}
-          {globalMessage ? <div style={successTextStyle}>{globalMessage}</div> : null}
+          {globalMessage ? (
+            <div style={successTextStyle}>{globalMessage}</div>
+          ) : null}
 
           <button
             type="button"
@@ -1896,7 +1921,7 @@ const slideshowPreviewImageStyle: CSSProperties = {
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleToggleFollow(item.uid, item.username)}
+                        onClick={() => handleToggleFollow(item.uid)}
                         disabled={busyFollowUserId === item.uid}
                         style={followButtonStyle(true)}
                       >
@@ -2168,9 +2193,7 @@ const slideshowPreviewImageStyle: CSSProperties = {
                   {viewedProfileOwnerId !== user?.uid ? (
                     <button
                       type="button"
-                      onClick={() =>
-                        handleToggleFollow(viewedProfileOwnerId, viewedProfileUsername)
-                      }
+                      onClick={() => handleToggleFollow(viewedProfileOwnerId)}
                       disabled={busyFollowUserId === viewedProfileOwnerId}
                       style={{
                         ...followButtonStyle(
@@ -2182,8 +2205,8 @@ const slideshowPreviewImageStyle: CSSProperties = {
                       {busyFollowUserId === viewedProfileOwnerId
                         ? "..."
                         : followingIds.includes(viewedProfileOwnerId)
-                        ? "Following"
-                        : "Follow"}
+                          ? "Following"
+                          : "Follow"}
                     </button>
                   ) : null}
                 </div>
@@ -2237,15 +2260,14 @@ const slideshowPreviewImageStyle: CSSProperties = {
 
 const appStyle: CSSProperties = {
   minHeight: "100vh",
-  background:
-    "radial-gradient(circle at top, rgba(54,63,102,0.28) 0%, rgba(6,7,10,1) 45%, rgba(0,0,0,1) 100%)",
+  background: "#000",
   color: "white",
 };
 
 const splashStyle: CSSProperties = {
   minHeight: "100vh",
   background:
-    "radial-gradient(circle at top, rgba(89,104,255,0.25) 0%, rgba(16,16,24,1) 45%, rgba(0,0,0,1) 100%)",
+    "radial-gradient(circle at top, rgba(255,255,255,0.08) 0%, rgba(15,15,18,1) 42%, rgba(0,0,0,1) 100%)",
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
@@ -2261,14 +2283,14 @@ const splashOrbStyle: CSSProperties = {
   height: 180,
   borderRadius: "50%",
   background:
-    "radial-gradient(circle, rgba(255,255,255,0.65) 0%, rgba(116,135,255,0.35) 35%, rgba(116,135,255,0) 70%)",
-  filter: "blur(8px)",
+    "radial-gradient(circle, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.1) 35%, rgba(255,255,255,0) 70%)",
+  filter: "blur(10px)",
   position: "absolute",
   top: "18%",
 };
 
 const splashTitleStyle: CSSProperties = {
-  fontSize: 44,
+  fontSize: 42,
   fontWeight: 900,
   letterSpacing: 0.8,
   position: "relative",
@@ -2277,15 +2299,15 @@ const splashTitleStyle: CSSProperties = {
 
 const splashSubtitleStyle: CSSProperties = {
   marginTop: 12,
-  color: "#c8d0ef",
-  fontSize: 16,
+  color: "#c8c8d3",
+  fontSize: 15,
   position: "relative",
   zIndex: 1,
 };
 
 const screenStyle: CSSProperties = {
   minHeight: `calc(100vh - ${BOTTOM_NAV_HEIGHT}px)`,
-  padding: `${TOP_NAV_HEIGHT + 24}px 20px 24px 20px`,
+  padding: `${TOP_NAV_HEIGHT + 20}px 16px 20px 16px`,
   color: "white",
 };
 
@@ -2309,7 +2331,7 @@ const pageHeaderStyle: CSSProperties = {
 const pageSubtextStyle: CSSProperties = {
   marginTop: 8,
   marginBottom: 0,
-  color: "#b9c0da",
+  color: "#a9a9b6",
 };
 
 const sectionTabsWrapStyle: CSSProperties = {
@@ -2321,10 +2343,10 @@ const sectionTabsWrapStyle: CSSProperties = {
   display: "flex",
   gap: 8,
   overflowX: "auto",
-  padding: "12px 12px 10px 12px",
-  background: "rgba(7,8,14,0.82)",
-  backdropFilter: "blur(12px)",
-  borderBottom: "1px solid rgba(255,255,255,0.08)",
+  padding: "10px 12px",
+  background: "rgba(0,0,0,0.72)",
+  backdropFilter: "blur(14px)",
+  borderBottom: "1px solid rgba(255,255,255,0.06)",
 };
 
 const feedContainerStyle: CSSProperties = {
@@ -2332,18 +2354,17 @@ const feedContainerStyle: CSSProperties = {
   overflowY: "scroll",
   scrollSnapType: "y mandatory",
   marginTop: TOP_NAV_HEIGHT,
+  scrollbarWidth: "none",
+  msOverflowStyle: "none",
 };
 
 const feedItemStyle: CSSProperties = {
   height: `calc(100vh - ${BOTTOM_NAV_HEIGHT + TOP_NAV_HEIGHT}px)`,
   position: "relative",
   scrollSnapAlign: "start",
-  borderRadius: 24,
   overflow: "hidden",
-  marginBottom: 16,
-  background: "#0d0f17",
-  border: "1px solid rgba(255,255,255,0.06)",
-  boxShadow: "0 18px 50px rgba(0,0,0,0.32)",
+  marginBottom: 0,
+  background: "#000",
 };
 
 const videoStyle: CSSProperties = {
@@ -2352,25 +2373,59 @@ const videoStyle: CSSProperties = {
   objectFit: "cover",
 };
 
-const slideshowPlaceholderStyle: CSSProperties = {
+const slideshowWrapStyle: CSSProperties = {
   width: "100%",
   height: "100%",
   display: "flex",
-  flexDirection: "column",
+  overflowX: "auto",
+  overflowY: "hidden",
+  scrollSnapType: "x mandatory",
+  WebkitOverflowScrolling: "touch",
+  background: "#000",
+};
+
+const slideshowSlideStyle: CSSProperties = {
+  minWidth: "100%",
+  height: "100%",
+  scrollSnapAlign: "start",
+  flexShrink: 0,
+};
+
+const slideshowImageStyle: CSSProperties = {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+  display: "block",
+};
+
+const slideshowEmptyStyle: CSSProperties = {
+  width: "100%",
+  height: "100%",
+  display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  background:
-    "linear-gradient(135deg, rgba(27,31,56,1) 0%, rgba(76,84,140,1) 100%)",
   color: "white",
-  textAlign: "center",
-  padding: 24,
+  background: "#111",
+};
+
+const heartBurstStyle: CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 86,
+  zIndex: 3,
+  pointerEvents: "none",
+  textShadow: "0 8px 30px rgba(0,0,0,0.45)",
+  animation: "heartPop 0.7s ease",
 };
 
 const overlayStyle: CSSProperties = {
   position: "absolute",
   inset: 0,
   background:
-    "linear-gradient(180deg, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.30) 35%, rgba(0,0,0,0.78) 100%)",
+    "linear-gradient(180deg, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.24) 35%, rgba(0,0,0,0.78) 100%)",
   pointerEvents: "none",
 };
 
@@ -2385,27 +2440,27 @@ const topInfoStyle: CSSProperties = {
 };
 
 const pillStyle: CSSProperties = {
-  background: "rgba(14,18,28,0.62)",
-  border: "1px solid rgba(255,255,255,0.12)",
+  background: "rgba(0,0,0,0.42)",
+  border: "1px solid rgba(255,255,255,0.1)",
   borderRadius: 999,
   padding: "7px 11px",
   fontSize: 12,
   fontWeight: 800,
   color: "white",
-  backdropFilter: "blur(10px)",
+  backdropFilter: "blur(12px)",
 };
 
 const warningPillStyle: CSSProperties = {
   ...pillStyle,
-  background: "rgba(134,88,29,0.75)",
+  background: "rgba(130,83,22,0.72)",
 };
 
 const postInfoStyle: CSSProperties = {
   position: "absolute",
-  bottom: 110,
-  left: 20,
+  bottom: 88,
+  left: 14,
   color: "white",
-  maxWidth: "72%",
+  maxWidth: "68%",
   zIndex: 2,
 };
 
@@ -2416,17 +2471,12 @@ const usernameRowStyle: CSSProperties = {
   flexWrap: "wrap",
 };
 
-const usernameStyle: CSSProperties = {
-  fontWeight: 800,
-  fontSize: 20,
-};
-
 const usernameLinkStyle: CSSProperties = {
   background: "transparent",
   border: "none",
   color: "white",
   fontWeight: 900,
-  fontSize: 20,
+  fontSize: 19,
   padding: 0,
   cursor: "pointer",
   textAlign: "left",
@@ -2443,23 +2493,23 @@ const profileUsernameLinkStyle: CSSProperties = {
 
 const captionStyle: CSSProperties = {
   marginTop: 8,
-  lineHeight: 1.45,
+  lineHeight: 1.42,
   fontSize: 15,
 };
 
 const metaRowStyle: CSSProperties = {
-  marginTop: 10,
-  fontSize: 13,
+  marginTop: 9,
+  fontSize: 12,
   opacity: 0.9,
   display: "flex",
-  gap: 12,
+  gap: 10,
   flexWrap: "wrap",
-  color: "#d8deff",
+  color: "#d7d7df",
 };
 
 const detailCardStyle: CSSProperties = {
   marginTop: 10,
-  background: "rgba(10,13,20,0.48)",
+  background: "rgba(0,0,0,0.34)",
   border: "1px solid rgba(255,255,255,0.08)",
   borderRadius: 16,
   padding: 12,
@@ -2482,36 +2532,36 @@ const detailBodyStyle: CSSProperties = {
 
 const actionsWrapperStyle: CSSProperties = {
   position: "absolute",
-  right: 16,
-  bottom: 110,
+  right: 10,
+  bottom: 92,
   display: "flex",
   flexDirection: "column",
-  gap: 12,
+  gap: 10,
   color: "white",
   textAlign: "center",
   zIndex: 2,
 };
 
 const actionButtonStyle: CSSProperties = {
-  background: "rgba(14,18,28,0.5)",
-  border: "1px solid rgba(255,255,255,0.10)",
+  background: "rgba(0,0,0,0.38)",
+  border: "1px solid rgba(255,255,255,0.1)",
   color: "white",
-  fontSize: 22,
+  fontSize: 20,
   cursor: "pointer",
   borderRadius: 16,
-  padding: "8px 10px",
-  backdropFilter: "blur(10px)",
+  padding: "8px 9px",
+  backdropFilter: "blur(12px)",
 };
 
 const ownerActionButtonStyle: CSSProperties = {
-  background: "rgba(14,18,28,0.56)",
-  border: "1px solid rgba(255,255,255,0.14)",
+  background: "rgba(0,0,0,0.42)",
+  border: "1px solid rgba(255,255,255,0.1)",
   color: "white",
   fontSize: 18,
   cursor: "pointer",
   borderRadius: 14,
   padding: "8px 10px",
-  backdropFilter: "blur(10px)",
+  backdropFilter: "blur(12px)",
 };
 
 const actionLabelStyle: CSSProperties = {
@@ -2521,27 +2571,27 @@ const actionLabelStyle: CSSProperties = {
 
 const formCardStyle: CSSProperties = {
   maxWidth: 760,
-  background: "rgba(11,14,22,0.88)",
+  background: "rgba(12,12,15,0.96)",
   border: "1px solid rgba(255,255,255,0.08)",
   borderRadius: 24,
-  padding: 22,
-  boxShadow: "0 18px 50px rgba(0,0,0,0.26)",
+  padding: 20,
+  boxShadow: "0 18px 50px rgba(0,0,0,0.3)",
 };
 
 const listCardStyle: CSSProperties = {
   maxWidth: 760,
-  background: "rgba(11,14,22,0.88)",
+  background: "rgba(12,12,15,0.96)",
   border: "1px solid rgba(255,255,255,0.08)",
   borderRadius: 24,
-  padding: 22,
+  padding: 20,
   marginTop: 18,
-  boxShadow: "0 18px 50px rgba(0,0,0,0.26)",
+  boxShadow: "0 18px 50px rgba(0,0,0,0.3)",
 };
 
 const twoColGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
-  gap: 14,
+  gap: 12,
 };
 
 const labelStyle: CSSProperties = {
@@ -2557,7 +2607,7 @@ const inputStyle: CSSProperties = {
   width: "100%",
   padding: 13,
   borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.10)",
+  border: "1px solid rgba(255,255,255,0.1)",
   background: "rgba(255,255,255,0.04)",
   color: "white",
   outline: "none",
@@ -2568,7 +2618,7 @@ const textareaStyle: CSSProperties = {
   minHeight: 100,
   padding: 13,
   borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.10)",
+  border: "1px solid rgba(255,255,255,0.1)",
   background: "rgba(255,255,255,0.04)",
   color: "white",
   outline: "none",
@@ -2586,6 +2636,22 @@ const previewStyle: CSSProperties = {
   borderRadius: 18,
   background: "black",
   border: "1px solid rgba(255,255,255,0.08)",
+};
+
+const slideshowPreviewGridStyle: CSSProperties = {
+  marginTop: 16,
+  display: "grid",
+  gridTemplateColumns: "repeat(3, 1fr)",
+  gap: 10,
+};
+
+const slideshowPreviewImageStyle: CSSProperties = {
+  width: "100%",
+  aspectRatio: "3 / 4",
+  objectFit: "cover",
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.08)",
+  background: "#111",
 };
 
 const editorPlaceholderStyle: CSSProperties = {
@@ -2626,17 +2692,17 @@ const successTextStyle: CSSProperties = {
 const profileCardStyle: CSSProperties = {
   maxWidth: 760,
   background:
-    "linear-gradient(135deg, rgba(34,40,73,0.95) 0%, rgba(15,18,30,0.95) 100%)",
+    "linear-gradient(135deg, rgba(28,28,36,0.98) 0%, rgba(10,10,13,0.98) 100%)",
   border: "1px solid rgba(255,255,255,0.08)",
   borderRadius: 24,
-  padding: 22,
-  boxShadow: "0 18px 50px rgba(0,0,0,0.26)",
+  padding: 20,
+  boxShadow: "0 18px 50px rgba(0,0,0,0.3)",
 };
 
 const profileViewerCardStyle: CSSProperties = {
   marginTop: 14,
   background:
-    "linear-gradient(135deg, rgba(34,40,73,0.95) 0%, rgba(15,18,30,0.95) 100%)",
+    "linear-gradient(135deg, rgba(28,28,36,0.98) 0%, rgba(10,10,13,0.98) 100%)",
   border: "1px solid rgba(255,255,255,0.08)",
   borderRadius: 20,
   padding: 18,
@@ -2691,7 +2757,7 @@ const smallActionButtonStyle = (active: boolean): CSSProperties => ({
   marginTop: 10,
   background: active ? "white" : "rgba(255,255,255,0.04)",
   color: active ? "black" : "white",
-  border: "1px solid rgba(255,255,255,0.10)",
+  border: "1px solid rgba(255,255,255,0.1)",
   borderRadius: 12,
   padding: "8px 12px",
   cursor: "pointer",
@@ -2700,7 +2766,7 @@ const smallActionButtonStyle = (active: boolean): CSSProperties => ({
 
 const navStyle: CSSProperties = {
   height: BOTTOM_NAV_HEIGHT,
-  background: "rgba(9,11,17,0.9)",
+  background: "rgba(0,0,0,0.9)",
   borderTop: "1px solid rgba(255,255,255,0.08)",
   backdropFilter: "blur(12px)",
   display: "grid",
@@ -2714,7 +2780,7 @@ const navStyle: CSSProperties = {
 const modalBackdropStyle: CSSProperties = {
   position: "fixed",
   inset: 0,
-  background: "rgba(0,0,0,0.7)",
+  background: "rgba(0,0,0,0.76)",
   zIndex: 50,
   display: "flex",
   alignItems: "center",
@@ -2727,7 +2793,7 @@ const modalCardStyle: CSSProperties = {
   maxWidth: 700,
   maxHeight: "85vh",
   overflowY: "auto",
-  background: "rgba(11,14,22,0.96)",
+  background: "rgba(12,12,15,0.98)",
   border: "1px solid rgba(255,255,255,0.08)",
   borderRadius: 22,
   padding: 18,
@@ -2773,7 +2839,7 @@ const commentHeaderStyle: CSSProperties = {
 };
 
 const authorBadgeStyle: CSSProperties = {
-  background: "rgba(255,255,255,0.10)",
+  background: "rgba(255,255,255,0.1)",
   border: "1px solid rgba(255,255,255,0.12)",
   borderRadius: 999,
   padding: "2px 8px",
@@ -2867,14 +2933,14 @@ function primaryButtonStyle(disabled: boolean): CSSProperties {
 
 function reactionButtonStyle(active: boolean): CSSProperties {
   return {
-    background: active ? "rgba(255,255,255,0.16)" : "rgba(14,18,28,0.5)",
-    border: "1px solid rgba(255,255,255,0.10)",
+    background: active ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.42)",
+    border: "1px solid rgba(255,255,255,0.1)",
     color: "white",
     fontSize: 22,
     cursor: "pointer",
     borderRadius: 16,
     padding: "8px 10px",
-    backdropFilter: "blur(10px)",
+    backdropFilter: "blur(12px)",
   };
 }
 
